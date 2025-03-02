@@ -1,0 +1,59 @@
+{
+  "scanner": "nmap",
+  "args": "nmap -vvv -p 80,443 -oX /output/result.xml 114.114.114.114",
+  "start": "1740856180",
+  "startstr": "Sat Mar  1 19:09:40 2025",
+  "version": "7.95",
+  "xml_output_version": "1.05",
+  "scan_info": {
+    "type": "connect",
+    "protocol": "tcp",
+    "num_services": "2",
+    "services": "80,443"
+  },
+  "verbose": {
+    "level": "3"
+  },
+  "debugging": {
+    "level": "0"
+  },
+  "task_begin": {
+    "task": "Ping Scan",
+    "time": "1740856180"
+  },
+  "task_end": {
+    "task": "Ping Scan",
+    "time": "1740856183",
+    "extra_info": "1 total hosts"
+  },
+  "hosts": [
+    {
+      "status": {
+        "state": "down",
+        "reason": "no-response",
+        "reason_ttl": "0"
+      },
+      "address": {
+        "addr": "114.114.114.114",
+        "addr_type": "ipv4"
+      },
+      "ports": {
+        "ports": null
+      }
+    }
+  ],
+  "run_stats": {
+    "finished": {
+      "time": "1740856183",
+      "timestr": "Sat Mar  1 19:09:43 2025",
+      "summary": "Nmap done at Sat Mar  1 19:09:43 2025; 1 IP address (0 hosts up) scanned in 3.09 seconds",
+      "elapsed": "3.09",
+      "exit": "success"
+    },
+    "hosts": {
+      "up": "0",
+      "down": "1",
+      "total": "1"
+    }
+  }
+}
