@@ -13,10 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cyberspacesec/go-rustscan/pkg/rustscan"
 	"github.com/docker/docker/client"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"github.com/cyberspacesec/go-rustscan/pkg/rustscan"
 )
 
 // ScanRequest 表示扫描请求的参数
@@ -72,16 +73,17 @@ func DefaultServerConfig() ServerConfig {
 
 // Server 表示API服务器
 type Server struct {
-	router      *gin.Engine
-	dockerCli   *client.Client
-	outputDir   string
-	mutex       sync.RWMutex
-	queue       *TaskQueue
-	storage     Storage
-	rateLimiter *RateLimiter
-	config      ServerConfig
-	webhook     *WebhookClient
-	mcpClient   *MCPClient // MCP客户端
+	router       *gin.Engine
+	dockerCli    *client.Client
+	outputDir    string
+	mutex        sync.RWMutex
+	queue        *TaskQueue
+	storage      Storage
+	rateLimiter  *RateLimiter
+	config       ServerConfig
+	webhook      *WebhookClient
+	mcpClient    *MCPClient    // MCP客户端
+	batchScanner *BatchScanner // 批量扫描处理器
 }
 
 // NewServer 创建一个新的API服务器
@@ -121,15 +123,16 @@ func NewServerWithConfig(outputDir string, config ServerConfig) (*Server, error)
 
 	// 创建服务器实例
 	server := &Server{
-		router:      router,
-		dockerCli:   dockerCli,
-		outputDir:   outputDir,
-		mutex:       sync.RWMutex{},
-		storage:     storage,
-		rateLimiter: NewRateLimiter(config.RateLimit, config.RateBurst),
-		config:      config,
-		webhook:     NewWebhookClient(),
-		mcpClient:   NewMCPClient(),
+		router:       router,
+		dockerCli:    dockerCli,
+		outputDir:    outputDir,
+		mutex:        sync.RWMutex{},
+		storage:      storage,
+		rateLimiter:  NewRateLimiter(config.RateLimit, config.RateBurst),
+		config:       config,
+		webhook:      NewWebhookClient(),
+		mcpClient:    NewMCPClient(),
+		batchScanner: nil,
 	}
 
 	// 创建任务队列
@@ -138,6 +141,9 @@ func NewServerWithConfig(outputDir string, config ServerConfig) (*Server, error)
 		config.MaxConcurrentScans,
 		config.QueueSize,
 	)
+
+	// 创建批量扫描处理器
+	server.batchScanner = NewBatchScanner(server)
 
 	// 启动定期清理任务
 	go server.startCleanupTask()
@@ -192,25 +198,64 @@ func (s *Server) setupRoutes() {
 
 	// 扫描相关路由
 	scan := api.Group("/scan", rateLimitMiddleware)
-	{
-		// 创建新的扫描任务
-		scan.POST("/", s.createScan)
 
-		// 获取扫描任务状态
-		scan.GET("/:id", s.getScanStatus)
+	// 创建新的扫描任务
+	scan.POST("/", s.createScan)
 
-		// 获取所有扫描任务
-		scan.GET("/", s.getAllScans)
+	// 获取扫描任务状态
+	scan.GET("/:id", s.getScanStatus)
 
-		// 取消扫描任务（如果正在运行）
-		scan.DELETE("/:id", s.cancelScan)
-	}
+	// 获取所有扫描任务
+	scan.GET("/", s.getAllScans)
+
+	// 取消扫描任务（如果正在运行）
+	scan.DELETE("/:id", s.cancelScan)
+
+	// 批量扫描相关路由
+	scan.POST("/batch", s.createBatchScan)
+	scan.GET("/batch/:id", s.getBatchScanStatus)
 
 	// 队列状态路由
 	api.GET("/metrics", func(c *gin.Context) {
 		metrics := s.queue.GetMetrics()
 		c.JSON(http.StatusOK, metrics)
 	})
+}
+
+// createBatchScan 创建批量扫描任务
+func (s *Server) createBatchScan(c *gin.Context) {
+	var req BatchScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("无效的请求参数: %v", err)})
+		return
+	}
+
+	// 启动批量扫描
+	response, err := s.batchScanner.StartBatchScan(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("启动批量扫描失败: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// getBatchScanStatus 获取批量扫描状态
+func (s *Server) getBatchScanStatus(c *gin.Context) {
+	batchID := c.Param("id")
+	if batchID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少批量任务ID"})
+		return
+	}
+
+	// 获取批量任务状态
+	response, err := s.batchScanner.GetBatchStatus(batchID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // Run 启动API服务器
